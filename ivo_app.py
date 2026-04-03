@@ -115,10 +115,11 @@ if mode == "Attendant Area":
     if os.path.exists(HEADER_IMAGE):
         st.image(HEADER_IMAGE, use_container_width=True)
 
-    # --- FEATURE: TOP SELLER DISPLAY FOR EVERYONE ---
+    # --- FEATURE: TOP SELLER DISPLAY (FIXED DATE HANDLING) ---
     if os.path.exists(SALES_FILE):
         s_df = pd.read_csv(SALES_FILE)
-        s_df['Date'] = pd.to_datetime(s_df['Date'])
+        # FIX: Added format='mixed' to prevent app collapse
+        s_df['Date'] = pd.to_datetime(s_df['Date'], format='mixed')
         now = datetime.now()
         m_data = s_df[(s_df['Date'].dt.month == now.month)
                       & (s_df['Date'].dt.year == now.year)]
@@ -217,7 +218,9 @@ elif mode == "Admin Area":
             st.subheader("Business Performance")
             if os.path.exists(SALES_FILE):
                 sales_df = pd.read_csv(SALES_FILE)
-                sales_df['Date'] = pd.to_datetime(sales_df['Date'])
+                # FIX: Added format='mixed' to prevent app collapse
+                sales_df['Date'] = pd.to_datetime(
+                    sales_df['Date'], format='mixed')
                 now = datetime.now()
                 monthly_data = sales_df[(sales_df['Date'].dt.month == now.month) & (
                     sales_df['Date'].dt.year == now.year)]
