@@ -98,7 +98,7 @@ def load_all_data():
         if os.path.exists("sales_history.csv"):
             df = pd.read_csv("sales_history.csv")
             if not df.empty:
-                df['Date'] = pd.to_datetime(df['Date'])
+                df['Date'] = pd.to_datetime(df['Date'], errors='coerce')
                 df['Month'] = df['Date'].dt.strftime('%Y-%m')
             st.session_state.sales_history = df.to_dict('records')
         else:
