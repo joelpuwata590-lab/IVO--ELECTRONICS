@@ -1,191 +1,256 @@
 import streamlit as st
 import pandas as pd
 import os
-import json
-import requests
-import difflib
 from datetime import datetime
-from duckduckgo_search import DDGS
 
-# --- 1. SETTINGS & FILE PATHS ---
+# --- 1. SETTINGS & PATHS ---
 STOCK_FILE = 'inventory.csv'
-SALES_FILE = 'sales_history.csv'
-CREDIT_FILE = 'debts.csv'
+SALES_FILE = 'sales_log.csv'
+CONFIG_FILE = 'config.txt'
 IMAGE_FOLDER = 'item_images'
 HEADER_IMAGE = 'ivo_header.jpg'
-LOW_STOCK_THRESHOLD = 2
+
+# --- SECURITY KEYS ---
+IVO_KEY = "IVO_123"
+OTHER_KEY = "PARTNER_456"
 
 if not os.path.exists(IMAGE_FOLDER):
     os.makedirs(IMAGE_FOLDER)
 
-# --- 2. THE TEST SAMPLES ---
-# This list will be added if your inventory is currently empty.
-SAMPLE_DATA = [
-    {"Brand": "TECNO", "Model": "TECNO Spark 20 Pro+",
-        "Price": 950000, "Cost": 800000, "Stock": 5},
-    {"Brand": "Infinix", "Model": "Infinix Smart 8",
-        "Price": 450000, "Cost": 380000, "Stock": 10},
-    {"Brand": "Samsung", "Model": "Samsung Galaxy S24 Ultra",
-        "Price": 5200000, "Cost": 4500000, "Stock": 2},
-    {"Brand": "Oraimo", "Model": "Oraimo 20000mAh Powerbank",
-        "Price": 120000, "Cost": 85000, "Stock": 15},
-    {"Brand": "Apple", "Model": "iPhone 15 Pro Max",
-        "Price": 6500000, "Cost": 5800000, "Stock": 1},
-    {"Brand": "Generic", "Model": "Digital TV Guard",
-        "Price": 45000, "Cost": 30000, "Stock": 20}
-]
 
-# --- 3. DATA ENGINE ---
+def get_admin_password():
+    default_pw = "IVO_MASTER_2026"
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, 'r') as f:
+                content = f.read().strip()
+                return content if content else default_pw
+        except Exception:
+            return default_pw
+    return default_pw
+
+
+def save_admin_password(new_pw):
+    with open(CONFIG_FILE, 'w') as f:
+        f.write(new_pw.strip())
+
+# --- 2. DATA & SALES LOGGING ---
 
 
 def load_data():
     if os.path.exists(STOCK_FILE):
         return pd.read_csv(STOCK_FILE)
     else:
-        # If no file exists, create one with the 6 sample items
-        df = pd.DataFrame(SAMPLE_DATA)
+        data = [
+            {"Category": "Smartphone", "Brand": "TECNO", "Model": "Spark 20 Pro+",
+                "Cost": 800000, "Price": 950000, "Stock": 10},
+            {"Category": "Subwoofer", "Brand": "Sayona", "Model": "SHT-1133BT",
+                "Cost": 280000, "Price": 350000, "Stock": 5},
+        ]
+        df = pd.DataFrame(data)
         df.to_csv(STOCK_FILE, index=False)
         return df
 
 
-def load_sales():
+def log_sale(row, is_credit=False):
+    profit = (row['Price'] - row['Cost']) if not is_credit else 0
+    sale_type = "CASH" if not is_credit else "CREDIT"
+
+    new_sale = pd.DataFrame([{
+        "Date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "Item": f"{row['Brand']} {row['Model']}",
+        "Price Sold": row['Price'],
+        "Profit": profit,
+        "Type": sale_type
+    }])
+
+    df = pd.read_csv(STOCK_FILE)
+    df.loc[df['Model'] == row['Model'], 'Stock'] -= 1
+    df.to_csv(STOCK_FILE, index=False)
+
     if os.path.exists(SALES_FILE):
-        df = pd.read_csv(SALES_FILE)
-        df['Date'] = pd.to_datetime(df['Date'])
-        return df
-    return pd.DataFrame(columns=["Date", "Item", "Qty", "SalePrice", "CostPrice", "Profit", "Month"])
+        new_sale.to_csv(SALES_FILE, mode='a', header=False, index=False)
+    else:
+        new_sale.to_csv(SALES_FILE, index=False)
 
 
-def load_credits():
-    if os.path.exists(CREDIT_FILE):
-        return pd.read_csv(CREDIT_FILE)
-    return pd.DataFrame(columns=["Date", "Customer", "Phone", "Item", "Balance", "Status"])
-
-
-def save_data(df, filename):
-    df.to_csv(filename, index=False)
-
-
-@st.cache_data(show_spinner=False)
-def fetch_image(item_name):
-    safe_name = "".join(
-        [c for c in item_name if c.isalnum() or c == ' ']).strip()
-    path = os.path.join(IMAGE_FOLDER, f"{safe_name}.jpg")
-    if os.path.exists(path):
-        return path
-    try:
-        with DDGS() as ddgs:
-            results = list(ddgs.images(
-                f"{item_name} official product", max_results=1))
-            if results:
-                img_data = requests.get(results[0]['image'], timeout=5).content
-                with open(path, 'wb') as f:
-                    f.write(img_data)
-                return path
-    except:
-        return None
-
-
-# --- 4. STYLING ---
+# --- 3. INTERFACE ---
 st.set_page_config(page_title="IVO Electronics - KADAMA", layout="wide")
+
 st.markdown("""
     <style>
-    .main-title { color: #003399; text-align: center; font-weight: bold; font-size: 36px; margin-bottom: 10px; }
-    .price-text { color: #d32f2f; font-size: 24px; font-weight: bold; }
-    .stock-text { color: #555; font-size: 16px; }
+    .main-title { color: white; background-color: #003399; text-align: center; font-weight: bold; font-size: 46px; padding: 15px; border-radius: 10px; margin-bottom: 10px; }
+    .counter-highlight { background-color: #e3f2fd; color: #003399; padding: 10px; border-radius: 5px; font-weight: bold; display: inline-block; width: 100%; margin-bottom: 15px; }
+    .price-tag { color: white; background: #d32f2f; padding: 10px; border-radius: 5px; font-weight: bold; font-size: 22px; text-align: center; }
+    .item-title { min-height: 60px; font-size: 22px; font-weight: bold; color: #333; margin-top: 10px;}
+    .stat-card { background: white; padding: 15px; border-radius: 10px; border: 2px solid #003399; text-align: center; margin-bottom: 20px;}
     </style>
     """, unsafe_allow_html=True)
 
-# Load data at start
 df_stock = load_data()
+current_admin_pw = get_admin_password()
 
-# --- 5. SIDEBAR ---
+if "admin_authenticated" not in st.session_state:
+    st.session_state["admin_authenticated"] = False
+
+# Sidebar logic
 st.sidebar.title("IVO HUB 📍")
-st.sidebar.subheader("⚠️ Stock Alerts")
-low_stock = df_stock[(df_stock['Stock'] >= 0) & (
-    df_stock['Stock'] <= LOW_STOCK_THRESHOLD)]
-for _, row in low_stock.iterrows():
-    st.sidebar.warning(f"Low Stock: {row['Model']} ({row['Stock']} left)")
+low_stock_items = df_stock[df_stock['Stock'] <= 2]
+if not low_stock_items.empty:
+    st.sidebar.error("⚠️ LOW STOCK ALERT!")
+    for _, item in low_stock_items.iterrows():
+        st.sidebar.write(f"**{item['Model']}**: only {item['Stock']} left")
 
-# --- 6. NAVIGATION ---
-if 'logged_in' not in st.session_state:
-    st.session_state.logged_in = False
-menu = ["Shop Counter", "Admin Login"]
-if st.session_state.logged_in:
-    menu = ["Shop Counter", "Dashboard",
-            "Inventory Management", "Credit Records", "Logout"]
-choice = st.sidebar.radio("Go to:", menu)
+mode = st.sidebar.radio("Select Area:", ["Attendant Area", "Admin Area"])
 
-# --- HEADER ---
-st.markdown("<h1 class='main-title'>IVO ELECTRONICS - KADAMA</h1>",
-            unsafe_allow_html=True)
-st.divider()
+if st.sidebar.button("Lock Admin Panel"):
+    st.session_state["admin_authenticated"] = False
+    st.rerun()
 
-# --- PAGE: SHOP COUNTER ---
-if choice == "Shop Counter":
-    st.subheader("🛒 Sales Counter")
-    search = st.text_input("🔍 Search for a phone or gadget...", "").lower()
+# --- ATTENDANT AREA ---
+if mode == "Attendant Area":
+    st.markdown("<div class='main-title'>IVO ELECTRONICS - KADAMA</div>",
+                unsafe_allow_html=True)
 
-    if search:
-        all_models = df_stock['Model'].tolist()
-        matches = difflib.get_close_matches(
-            search, [m.lower() for m in all_models], n=5, cutoff=0.3)
-        display_df = df_stock[df_stock['Model'].str.lower().isin(matches)]
-    else:
-        display_df = df_stock
+    if os.path.exists(HEADER_IMAGE):
+        st.image(HEADER_IMAGE, use_container_width=True)
 
-    cols = st.columns(2)
+    # --- FEATURE: TOP SELLER DISPLAY FOR EVERYONE ---
+    if os.path.exists(SALES_FILE):
+        s_df = pd.read_csv(SALES_FILE)
+        s_df['Date'] = pd.to_datetime(s_df['Date'])
+        now = datetime.now()
+        m_data = s_df[(s_df['Date'].dt.month == now.month)
+                      & (s_df['Date'].dt.year == now.year)]
+
+        if not m_data.empty:
+            top_item = m_data['Item'].value_counts().idxmax()
+            top_count = m_data['Item'].value_counts().max()
+            st.markdown(f"""
+                <div class='stat-card'>
+                    <h3 style='margin:0; color:#003399;'>🏆 MOST SELLING ITEM THIS MONTH</h3>
+                    <h2 style='margin:10px 0;'>{top_item}</h2>
+                    <p style='margin:0; font-weight:bold;'>Total Units Sold: {top_count}</p>
+                </div>
+            """, unsafe_allow_html=True)
+
+    st.divider()
+    st.markdown("<div class='counter-highlight'>🛒 SHOP COUNTER</div>",
+                unsafe_allow_html=True)
+
+    search = st.text_input("🔍 Search Brand or Model...")
+    display_df = df_stock[df_stock['Model'].str.contains(
+        search, case=False) | df_stock['Brand'].str.contains(search, case=False)] if search else df_stock
+
+    cols = st.columns(2, gap="medium")
     for idx, row in display_df.iterrows():
         with cols[idx % 2]:
             with st.container(border=True):
-                c1, c2 = st.columns([1, 1.5])
-                with c1:
-                    img = fetch_image(row['Model'])
-                    if img:
-                        st.image(img, use_container_width=True)
+                model_name = str(row['Model']).strip()
+                img_path = None
+                for ext in ['.jpg', '.jpeg', '.png']:
+                    test_path = os.path.join(
+                        IMAGE_FOLDER, f"{model_name}{ext}")
+                    if os.path.exists(test_path):
+                        img_path = test_path
+                        break
+
+                if img_path:
+                    st.image(img_path, use_container_width=True)
+                else:
+                    st.info(f"📸 No image for {model_name}")
+
+                st.markdown(
+                    f"<div class='item-title'>{row['Brand']} {row['Model']}</div>", unsafe_allow_html=True)
+                st.write(f"**Stock:** {row['Stock']} left")
+                st.markdown(
+                    f"<div class='price-tag'>UGX {row['Price']:,}</div>", unsafe_allow_html=True)
+
+                c1, c2 = st.columns(2)
+                if c1.button("LOG SALE", key=f"s_{idx}", use_container_width=True):
+                    log_sale(row, is_credit=False)
+                    st.success("Cash Sale Recorded!")
+                    st.rerun()
+                if c2.button("CREDIT", key=f"c_{idx}", use_container_width=True):
+                    log_sale(row, is_credit=True)
+                    st.warning("Credit Sale Logged!")
+                    st.rerun()
+
+# --- ADMIN AREA ---
+elif mode == "Admin Area":
+    if not st.session_state["admin_authenticated"]:
+        pw_input = st.text_input(
+            "Admin Master Password", type="password").strip()
+        if st.button("Login"):
+            if pw_input == current_admin_pw:
+                st.session_state["admin_authenticated"] = True
+                st.rerun()
+            else:
+                st.error("Incorrect Password.")
+    else:
+        tab1, tab2, tab3, tab4 = st.tabs(
+            ["📦 Stock List", "➕ Add Item", "💰 Profits & Stats", "🔐 Security"])
+
+        with tab1:
+            st.subheader("Manage Inventory")
+            updated_df = st.data_editor(
+                df_stock, use_container_width=True, num_rows="dynamic")
+            if st.button("Save Changes"):
+                updated_df.to_csv(STOCK_FILE, index=False)
+                st.success("Stock updated!")
+
+        with tab2:
+            st.subheader("Add Product")
+            with st.form("new_item"):
+                b, m, c = st.text_input("Brand"), st.text_input("Model"), st.selectbox(
+                    "Type", ["Smartphone", "Subwoofer", "TV", "Other"])
+                cost, price, stock = st.number_input("Cost"), st.number_input(
+                    "Price"), st.number_input("Stock")
+                if st.form_submit_button("Add Item"):
+                    new_row = pd.DataFrame(
+                        [{"Category": c, "Brand": b, "Model": m, "Cost": cost, "Price": price, "Stock": stock}])
+                    pd.concat([df_stock, new_row], ignore_index=True).to_csv(
+                        STOCK_FILE, index=False)
+                    st.success("Added!")
+
+        with tab3:
+            st.subheader("Business Performance")
+            if os.path.exists(SALES_FILE):
+                sales_df = pd.read_csv(SALES_FILE)
+                sales_df['Date'] = pd.to_datetime(sales_df['Date'])
+                now = datetime.now()
+                monthly_data = sales_df[(sales_df['Date'].dt.month == now.month) & (
+                    sales_df['Date'].dt.year == now.year)]
+
+                m1, m2 = st.columns(2)
+                total_monthly_profit = monthly_data['Profit'].sum()
+                m1.markdown(
+                    f"<div style='background:#e8f5e9; padding:15px; border-radius:10px; text-align:center;'><h3>Monthly Profit</h3><h2 style='color:green;'>UGX {total_monthly_profit:,}</h2></div>", unsafe_allow_html=True)
+
+                if not monthly_data.empty:
+                    most_sold = monthly_data['Item'].value_counts().idxmax()
+                    sold_count = monthly_data['Item'].value_counts().max()
+                    m2.markdown(
+                        f"<div style='background:#e3f2fd; padding:15px; border-radius:10px; text-align:center;'><h3>Top Seller</h3><h2 style='color:#003399;'>{most_sold}</h2><p>({sold_count} units)</p></div>", unsafe_allow_html=True)
+
+                st.write("### Full Sales History")
+                st.dataframe(sales_df.sort_values(
+                    by='Date', ascending=False), use_container_width=True)
+
+        with tab4:
+            st.subheader("System Security Settings")
+            with st.form("security_form"):
+                v_ivo = st.text_input(
+                    "Ivo's Verification Key", type="password").strip()
+                v_other = st.text_input(
+                    "Other's Verification Key", type="password").strip()
+                new_pw = st.text_input(
+                    "Create New Admin Password", type="password").strip()
+                if st.form_submit_button("Authorize Password Reset"):
+                    if v_ivo == IVO_KEY and v_other == OTHER_KEY:
+                        save_admin_password(new_pw)
+                        st.success("Password updated!")
+                        st.session_state["admin_authenticated"] = False
+                        st.rerun()
                     else:
-                        st.info("No Image")
-                with c2:
-                    st.markdown(f"## {row['Model']}")
-                    st.markdown(
-                        f"<span class='price-text'>UGX {row['Price']:,}</span>", unsafe_allow_html=True)
-                    st.markdown(
-                        f"<p class='stock-text'>In Stock: <b>{row['Stock']}</b></p>", unsafe_allow_html=True)
-
-                    qty = st.number_input(
-                        "Qty", min_value=0, step=1, key=f"qty_{idx}")
-                    if st.button(f"Confirm Sale", key=f"btn_{idx}", use_container_width=True, type="primary"):
-                        if qty > 0:
-                            # Save Sale
-                            profit = (row['Price'] - row['Cost']) * qty
-                            sales_df = load_sales()
-                            new_sale = pd.DataFrame([{
-                                "Date": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                                "Item": row['Model'], "Qty": qty, "SalePrice": row['Price'],
-                                "CostPrice": row['Cost'], "Profit": profit,
-                                "Month": datetime.now().strftime("%Y-%m")
-                            }])
-                            save_data(
-                                pd.concat([sales_df, new_sale]), SALES_FILE)
-
-                            # Deduct Stock
-                            df_stock.at[idx, 'Stock'] -= qty
-                            save_data(df_stock, STOCK_FILE)
-                            st.success("Sale Recorded!")
-                            st.rerun()
-
-# --- ADMIN LOGIN ---
-elif choice == "Admin Login":
-    pin = st.text_input("Enter Partner PIN", type="password")
-    if st.button("Login"):
-        if pin in ["1111", "2222"]:
-            st.session_state.logged_in = True
-            st.rerun()
-        else:
-            st.error("Wrong PIN")
-
-elif choice == "Logout":
-    st.session_state.logged_in = False
-    st.rerun()
-
-# (The Dashboard and Inventory pages remain the same as previous versions)
+                        st.error("Verification Failed.")
