@@ -1,6 +1,2 @@
 streamlit
-<<<<<<< HEAD
-duckduckgo_search
-=======
-duckduckgo_search
->>>>>>> d8109272ea1c8a2c7db6b1d66ed6c2b965ef88f7
+pandas
